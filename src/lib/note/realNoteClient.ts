@@ -3,6 +3,16 @@ import { markdownToNoteHtml } from "./markdown.js";
 
 const BASE_URL = "https://note.com";
 
+// note.com側のボット対策で弾かれないよう、実ブラウザに近いヘッダーを付与する
+const BROWSER_HEADERS = {
+  "user-agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+    "Chrome/128.0.0.0 Safari/537.36",
+  accept: "application/json, text/plain, */*",
+  origin: BASE_URL,
+  referer: `${BASE_URL}/login`,
+};
+
 /**
  * note.comは記事投稿用の公式APIを提供していないため、Web版が内部で使っている
  * 非公式なエンドポイントを利用する。仕様変更でいつ壊れてもおかしくない点に注意。
@@ -23,7 +33,10 @@ export class RealNoteClient implements NoteClient {
 
     const response = await fetch(`${BASE_URL}/api/v1/sessions/sign_in`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...BROWSER_HEADERS,
+      },
       // note.com側は "login" というキー名を期待している("login_id"だと
       // {"error":"login is missing"} で400が返ってくることを実際のログで確認済み)
       body: JSON.stringify({ login: this.email, password: this.password }),
@@ -36,19 +49,20 @@ export class RealNoteClient implements NoteClient {
     }
 
     const cookies = response.headers.getSetCookie?.() ?? [];
-    const sessionCookie = cookies
-      .map((cookie) => cookie.split(";")[0])
-      .find((cookie) => cookie.startsWith("_note_session_v5="));
-
-    if (!sessionCookie) {
+    if (cookies.length === 0) {
+      const bodySnippet = (await response.text()).slice(0, 500);
       throw new Error(
-        "note.comのログイン応答からセッションCookieを取得できませんでした" +
-          "(note.com側の仕様変更でCookie名が変わっている可能性があります)",
+        "note.comのログイン応答にCookieが含まれていませんでした" +
+          "(ボット対策等でログイン自体が成立していない可能性があります)。" +
+          `応答本文の先頭: ${bodySnippet}`,
       );
     }
 
-    this.sessionCookie = sessionCookie;
-    return sessionCookie;
+    // 個別のCookie名を決め打ちせず、返ってきたCookieをすべてそのまま次のリクエストに使う
+    // (値は機密情報なのでログには出さず、名前だけ出す)
+    console.log(`note.comログイン成功。受け取ったCookie: ${cookies.map((c) => c.split("=")[0]).join(", ")}`);
+    this.sessionCookie = cookies.map((cookie) => cookie.split(";")[0]).join("; ");
+    return this.sessionCookie;
   }
 
   async createArticle(draft: DraftArticle, publish: boolean): Promise<{ url: string | null }> {
@@ -56,7 +70,7 @@ export class RealNoteClient implements NoteClient {
 
     const draftResponse = await fetch(`${BASE_URL}/api/v1/text_notes/draft_save`, {
       method: "POST",
-      headers: { "content-type": "application/json", cookie },
+      headers: { "content-type": "application/json", cookie, ...BROWSER_HEADERS },
       body: JSON.stringify({
         note: {
           name: draft.title,
@@ -88,7 +102,7 @@ export class RealNoteClient implements NoteClient {
 
     const publishResponse = await fetch(`${BASE_URL}/api/v1/text_notes/${noteId}/publish`, {
       method: "POST",
-      headers: { "content-type": "application/json", cookie },
+      headers: { "content-type": "application/json", cookie, ...BROWSER_HEADERS },
       body: JSON.stringify({}),
     });
 
