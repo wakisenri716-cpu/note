@@ -1,6 +1,7 @@
 export interface Config {
   feedUrls: string[];
   anthropicApiKey: string | null;
+  noteSessionCookie: string | null;
   noteEmail: string | null;
   notePassword: string | null;
   autoPublish: boolean;
@@ -22,6 +23,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return {
     feedUrls,
     anthropicApiKey: env.ANTHROPIC_API_KEY || null,
+    noteSessionCookie: env.NOTE_SESSION_COOKIE || null,
     noteEmail: env.NOTE_EMAIL || null,
     notePassword: env.NOTE_PASSWORD || null,
     autoPublish: parseBool(env.NOTE_AUTO_PUBLISH, false),

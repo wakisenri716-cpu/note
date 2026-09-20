@@ -21,6 +21,11 @@ src/run.ts              一連の処理を実行するエントリーポイン�
   内部的に利用しているエンドポイント(`/api/v1/...`)を非公式に呼び出しています。
   note.com側の仕様変更でいつ動かなくなってもおかしくありません。動かなくなった場合は
   `src/lib/note/realNoteClient.ts` のエンドポイント・パラメータを見直してください。
+- **メール+パスワードでの自動ログインは、ほぼ確実に失敗します。** GitHub Actions等の
+  データセンターIPからのログインはnote.com側にreCAPTCHA認証を要求され、これは
+  自動化で正規に突破する方法がありません(突破しようとする実装はお作りしません)。
+  そのため下記の **`NOTE_SESSION_COOKIE`(ブラウザでログイン後のセッションを使う方式)**
+  を利用してください。
 - **他サイトのRSS記事を要約して転載する行為は、元サイトの利用規約や著作権に抵触する
   可能性があります。** 必ず出典(元記事タイトル・URL)を明記し、対象フィードの利用規約を
   事前に確認してください。要約実装(`ClaudeSummarizer`)は元文章をそのまま複製しないよう
@@ -34,11 +39,26 @@ src/run.ts              一連の処理を実行するエントリーポイン�
 ## セットアップ
 
 ```bash
-cp .env.example .env   # FEED_URLS / NOTE_EMAIL / NOTE_PASSWORD などを設定
+cp .env.example .env   # FEED_URLS / NOTE_SESSION_COOKIE などを設定
 npm install
 npm run post:dry        # まずはDRY_RUN(投稿せず内容をログ出力するだけ)で確認
 npm run post            # 実際に下書き保存 (認証情報未設定ならMockNoteClientでログ出力のみ)
 ```
+
+### NOTE_SESSION_COOKIEの取得方法
+
+1. 普段使っているブラウザ(Chrome等)で note.com にログインする
+2. ログインしたまま、開発者ツールを開く(`F12` または右クリック→検証)
+3. **Application**(Chrome)または **ストレージ**(Firefox)タブ → **Cookies** →
+   `https://note.com` を選択
+4. Cookie一覧の中から `_note_session_v5` という名前の行を探し、**Value**列の値を
+   コピーする(名前が違う場合は、セッションらしき最も長いCookieを試してください)
+5. `NOTE_SESSION_COOKIE` にその値を、`_note_session_v5=コピーした値` という形式
+   (Cookie名も含める)で設定する
+
+このCookieはブラウザで再ログインしたり、ログアウトしたりすると無効になります。
+その場合はワークフローが「Cookieの有効期限が切れている可能性があります」という
+エラーで失敗するので、同じ手順で値を取り直してください。
 
 ### 環境変数 (`.env`)
 
@@ -46,13 +66,14 @@ npm run post            # 実際に下書き保存 (認証情報未設定ならM
 | --- | --- |
 | `FEED_URLS` | 要約元にする国際ニュースRSS/AtomのURL。カンマ区切りで複数指定可(候補は`.env.example`参照) |
 | `ANTHROPIC_API_KEY` | Claudeで「表/裏」記事を書かせる場合に設定。未設定時は簡易的なMockSummarizerで動作 |
-| `NOTE_EMAIL` / `NOTE_PASSWORD` | note.comのログイン情報。未設定時は投稿せずログ出力するだけのMockNoteClientで動作 |
+| `NOTE_SESSION_COOKIE` | [推奨] ブラウザでログイン後に取得したセッションCookie。取得方法は上記参照 |
+| `NOTE_EMAIL` / `NOTE_PASSWORD` | [非推奨] メール+パスワードでの自動ログイン。`NOTE_SESSION_COOKIE`未設定時のみ使われるが、reCAPTCHA要求によりCI環境ではほぼ失敗する |
 | `NOTE_AUTO_PUBLISH` | `true`で下書きではなく公開まで実行(既定は`false`) |
 | `MAX_ARTICLES_PER_RUN` | 1回の実行で処理するトピック(=投稿記事数)の上限(既定5件) |
 | `DRY_RUN` | `true`でnote.comへの投稿・状態保存をスキップし、内容確認のみ行う |
 
-`ANTHROPIC_API_KEY` / `NOTE_EMAIL` / `NOTE_PASSWORD` をすべて未設定のまま `npm run post`
-を実行すると、実際には外部に一切投稿せずログだけで動作を確認できます。
+`ANTHROPIC_API_KEY` / `NOTE_SESSION_COOKIE` を未設定のまま `npm run post` を実行すると、
+実際には外部に一切投稿せずログだけで動作を確認できます。
 
 `.env.example` に国際ニュースRSSの候補URLを記載していますが、開発環境からは動作確認
 できていません(メディア側の都合でURLが変わることがあります)。`npm run post:dry` で
@@ -69,8 +90,11 @@ npm run post            # 実際に下書き保存 (認証情報未設定ならM
 `.github/workflows/auto-post.yml` が毎日 09:00 (JST) に自動実行されます。リポジトリの
 Settings で以下を設定してください。
 
-- **Secrets**: `ANTHROPIC_API_KEY`, `NOTE_EMAIL`, `NOTE_PASSWORD`
+- **Secrets**: `ANTHROPIC_API_KEY`, `NOTE_SESSION_COOKIE`(推奨。取得方法は上記参照)
 - **Variables**: `FEED_URLS`, `NOTE_AUTO_PUBLISH`, `MAX_ARTICLES_PER_RUN`
+
+`NOTE_SESSION_COOKIE`は定期的に無効になるため、失敗したらブラウザで取り直して
+Secretを更新してください(`NOTE_EMAIL`/`NOTE_PASSWORD`のSecretは基本的に不要です)。
 
 手動実行したい場合はActionsタブから `workflow_dispatch` で起動できます。
 

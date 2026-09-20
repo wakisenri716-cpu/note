@@ -14,7 +14,7 @@ async function main() {
   }
 
   const summarizer = createSummarizer(config.anthropicApiKey);
-  const noteClient = createNoteClient(config.noteEmail, config.notePassword);
+  const noteClient = createNoteClient(config.noteSessionCookie, config.noteEmail, config.notePassword);
 
   const postedIds = await loadPostedIds();
   const allItems = await fetchAllFeedItems(config.feedUrls);
