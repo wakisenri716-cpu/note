@@ -2,15 +2,31 @@ import type { DraftArticle, NoteClient } from "../../types.js";
 import { markdownToNoteHtml } from "./markdown.js";
 
 const BASE_URL = "https://note.com";
+// 記事作成系のAPIは、note.comの記事編集画面が動いているサブドメイン
+// (editor.note.com)からの呼び出しとしてOriginを検証している
+// (実際のDevTools応答で Access-Control-Allow-Origin: https://editor.note.com
+//  だったことを確認済み。Originがこれと違うと「ログインしていない」扱いになる)
+const EDITOR_ORIGIN = "https://editor.note.com";
 
-// note.com側のボット対策で弾かれないよう、実ブラウザに近いヘッダーを付与する
-const BROWSER_HEADERS = {
-  "user-agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
-    "Chrome/128.0.0.0 Safari/537.36",
+const USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+  "Chrome/128.0.0.0 Safari/537.36";
+
+// ログインページ(note.com)向けのヘッダー。note.com側のボット対策で弾かれないよう、
+// 実ブラウザに近い値を付与する
+const LOGIN_HEADERS = {
+  "user-agent": USER_AGENT,
   accept: "application/json, text/plain, */*",
   origin: BASE_URL,
   referer: `${BASE_URL}/login`,
+};
+
+// 記事作成・保存・公開(editor.note.com)向けのヘッダー
+const EDITOR_HEADERS = {
+  "user-agent": USER_AGENT,
+  accept: "application/json, text/plain, */*",
+  origin: EDITOR_ORIGIN,
+  referer: `${EDITOR_ORIGIN}/notes/new`,
 };
 
 function cookieExpiredHint(status: number): string {
@@ -73,7 +89,7 @@ export class RealNoteClient implements NoteClient {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...BROWSER_HEADERS,
+        ...LOGIN_HEADERS,
       },
       // note.com側は "login" というキー名を期待している("login_id"だと
       // {"error":"login is missing"} で400が返ってくることを実際のログで確認済み)
@@ -114,7 +130,7 @@ export class RealNoteClient implements NoteClient {
     // 1. まず空のnoteを作成してIDを取得する(ブラウザのDevToolsで実際の挙動を確認済み)
     const createResponse = await fetch(`${BASE_URL}/api/v1/text_notes`, {
       method: "POST",
-      headers: { "content-type": "application/json", cookie, ...BROWSER_HEADERS },
+      headers: { "content-type": "application/json", cookie, ...EDITOR_HEADERS },
       body: JSON.stringify({ template_key: null }),
     });
 
@@ -126,6 +142,17 @@ export class RealNoteClient implements NoteClient {
     }
 
     const createJson = await createResponse.json();
+    // note.comは認証エラー等でも200系で {"error":{"code":"...","message":"..."}} を返すことがある
+    const errorField = (createJson as { error?: unknown }).error;
+    if (errorField) {
+      const message =
+        typeof errorField === "string" ? errorField : (errorField as { message?: string }).message;
+      throw new Error(
+        `note作成がnote.com側で拒否されました: ${message ?? JSON.stringify(errorField)}` +
+          cookieExpiredHint(401),
+      );
+    }
+
     const noteId = findField(createJson, "id", (v) => typeof v === "number") as number | undefined;
     const noteKey = findField(createJson, "key", (v) => typeof v === "string") as string | undefined;
 
@@ -143,7 +170,7 @@ export class RealNoteClient implements NoteClient {
       `${BASE_URL}/api/v1/text_notes/draft_save?id=${noteId}&is_temp_saved=true`,
       {
         method: "POST",
-        headers: { "content-type": "application/json", cookie, ...BROWSER_HEADERS },
+        headers: { "content-type": "application/json", cookie, ...EDITOR_HEADERS },
         body: JSON.stringify({
           name: draft.title,
           body: html,
@@ -168,7 +195,7 @@ export class RealNoteClient implements NoteClient {
 
     const publishResponse = await fetch(`${BASE_URL}/api/v1/text_notes/${noteId}/publish`, {
       method: "POST",
-      headers: { "content-type": "application/json", cookie, ...BROWSER_HEADERS },
+      headers: { "content-type": "application/json", cookie, ...EDITOR_HEADERS },
       body: JSON.stringify({}),
     });
 
