@@ -7,11 +7,17 @@ import type { DraftArticle, FeedItem, Summarizer } from "../../types.js";
 export class MockSummarizer implements Summarizer {
   async summarize(item: FeedItem): Promise<DraftArticle> {
     const body = [
-      `${item.sourceName} の記事「${item.title}」の紹介です。`,
+      "## 表 — 報道されている事実",
+      "",
+      `${item.sourceName} が伝えた「${item.title}」の紹介です。`,
       "",
       item.contentSnippet || "(本文の抜粋を取得できませんでした)",
       "",
-      `詳しくは元記事をご覧ください: ${item.link}`,
+      "## 裏 — 背景・文脈",
+      "",
+      "(ANTHROPIC_API_KEY未設定のため、背景分析は生成されていません)",
+      "",
+      `出典: ${item.sourceName} 「${item.title}」 ${item.link}`,
     ].join("\n");
 
     return { title: item.title, body };

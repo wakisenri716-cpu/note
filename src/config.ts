@@ -25,7 +25,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     noteEmail: env.NOTE_EMAIL || null,
     notePassword: env.NOTE_PASSWORD || null,
     autoPublish: parseBool(env.NOTE_AUTO_PUBLISH, false),
-    maxArticlesPerRun: Number(env.MAX_ARTICLES_PER_RUN ?? "3") || 3,
+    maxArticlesPerRun: Number(env.MAX_ARTICLES_PER_RUN ?? "5") || 5,
     dryRun: parseBool(env.DRY_RUN, false),
   };
 }

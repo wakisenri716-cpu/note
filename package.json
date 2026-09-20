@@ -2,7 +2,7 @@
   "name": "note-auto-poster",
   "version": "0.1.0",
   "private": true,
-  "description": "RSSフィードの記事を要約し、note.comへ自動投稿(下書き作成)するバッチツール",
+  "description": "国際ニュースを「表と裏」形式で要約し、note.comへ自動投稿(下書き作成)するバッチツール",
   "type": "module",
   "scripts": {
     "post": "tsx src/run.ts",
