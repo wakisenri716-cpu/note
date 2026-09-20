@@ -24,7 +24,9 @@ export class RealNoteClient implements NoteClient {
     const response = await fetch(`${BASE_URL}/api/v1/sessions/sign_in`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ login_id: this.email, password: this.password }),
+      // note.com側は "login" というキー名を期待している("login_id"だと
+      // {"error":"login is missing"} で400が返ってくることを実際のログで確認済み)
+      body: JSON.stringify({ login: this.email, password: this.password }),
     });
 
     if (!response.ok) {
