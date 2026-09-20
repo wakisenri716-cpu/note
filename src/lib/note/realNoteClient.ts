@@ -21,6 +21,21 @@ function cookieExpiredHint(status: number): string {
 }
 
 /**
+ * 応答JSONの厳密な形(ネストの深さなど)が不明なため、指定したキー名かつ
+ * 条件を満たす値を再帰的に探す。見つからない場合はundefined。
+ */
+function findField(value: unknown, key: string, isMatch: (v: unknown) => boolean, depth = 3): unknown {
+  if (depth < 0 || value === null || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  if (key in record && isMatch(record[key])) return record[key];
+  for (const nested of Object.values(record)) {
+    const found = findField(nested, key, isMatch, depth - 1);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+/**
  * note.comは記事投稿用の公式APIを提供していないため、Web版が内部で使っている
  * 非公式なエンドポイントを利用する。仕様変更でいつ壊れてもおかしくない点に注意。
  * (参考: 各種OSSのnote.com自動投稿ツールが利用している /api/v1/... 系のエンドポイント)
@@ -96,32 +111,54 @@ export class RealNoteClient implements NoteClient {
   async createArticle(draft: DraftArticle, publish: boolean): Promise<{ url: string | null }> {
     const cookie = await this.login();
 
-    const draftResponse = await fetch(`${BASE_URL}/api/v1/text_notes/draft_save`, {
+    // 1. まず空のnoteを作成してIDを取得する(ブラウザのDevToolsで実際の挙動を確認済み)
+    const createResponse = await fetch(`${BASE_URL}/api/v1/text_notes`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie, ...BROWSER_HEADERS },
-      body: JSON.stringify({
-        note: {
-          name: draft.title,
-          body: markdownToNoteHtml(draft.body),
-        },
-      }),
+      body: JSON.stringify({ template_key: null }),
     });
 
-    if (!draftResponse.ok) {
+    if (!createResponse.ok) {
       throw new Error(
-        `下書きの作成に失敗しました (status=${draftResponse.status}): ` +
-          `${await draftResponse.text()}${cookieExpiredHint(draftResponse.status)}`,
+        `noteの作成に失敗しました (status=${createResponse.status}): ` +
+          `${await createResponse.text()}${cookieExpiredHint(createResponse.status)}`,
       );
     }
 
-    const draftJson = (await draftResponse.json()) as {
-      data?: { id?: number; key?: string };
-    };
-    const noteId = draftJson.data?.id;
-    const noteKey = draftJson.data?.key;
+    const createJson = await createResponse.json();
+    const noteId = findField(createJson, "id", (v) => typeof v === "number") as number | undefined;
+    const noteKey = findField(createJson, "key", (v) => typeof v === "string") as string | undefined;
 
     if (!noteId) {
-      throw new Error("下書き作成応答からnote IDを取得できませんでした");
+      throw new Error(
+        `note作成応答からIDを取得できませんでした。応答: ${JSON.stringify(createJson).slice(0, 500)}`,
+      );
+    }
+
+    // 2. タイトル・本文を保存する(エディタの自動保存と同じAPI)
+    const html = markdownToNoteHtml(draft.body);
+    const bodyLength = draft.body.replace(/\s+/g, "").length;
+
+    const draftResponse = await fetch(
+      `${BASE_URL}/api/v1/text_notes/draft_save?id=${noteId}&is_temp_saved=true`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie, ...BROWSER_HEADERS },
+        body: JSON.stringify({
+          name: draft.title,
+          body: html,
+          body_length: bodyLength,
+          index: false,
+          is_lead_form: false,
+        }),
+      },
+    );
+
+    if (!draftResponse.ok) {
+      throw new Error(
+        `下書きの保存に失敗しました (status=${draftResponse.status}): ` +
+          `${await draftResponse.text()}${cookieExpiredHint(draftResponse.status)}`,
+      );
     }
 
     const draftUrl = noteKey ? `${BASE_URL}/notes/${noteKey}` : null;
