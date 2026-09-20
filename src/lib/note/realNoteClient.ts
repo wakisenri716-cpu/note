@@ -36,18 +36,19 @@ export class RealNoteClient implements NoteClient {
     }
 
     const cookies = response.headers.getSetCookie?.() ?? [];
-    if (cookies.length === 0) {
+    const sessionCookie = cookies
+      .map((cookie) => cookie.split(";")[0])
+      .find((cookie) => cookie.startsWith("_note_session_v5="));
+
+    if (!sessionCookie) {
       throw new Error(
-        "note.comのログイン応答にCookieが含まれていませんでした" +
-          "(note.com側の仕様変更でログイン方法自体が変わっている可能性があります)",
+        "note.comのログイン応答からセッションCookieを取得できませんでした" +
+          "(note.com側の仕様変更でCookie名が変わっている可能性があります)",
       );
     }
 
-    // 個別のCookie名を決め打ちせず、返ってきたCookieをすべてそのまま次のリクエストに使う
-    // (値は機密情報なのでログには出さず、名前だけ出す)
-    console.log(`note.comログイン成功。受け取ったCookie: ${cookies.map((c) => c.split("=")[0]).join(", ")}`);
-    this.sessionCookie = cookies.map((cookie) => cookie.split(";")[0]).join("; ");
-    return this.sessionCookie;
+    this.sessionCookie = sessionCookie;
+    return sessionCookie;
   }
 
   async createArticle(draft: DraftArticle, publish: boolean): Promise<{ url: string | null }> {
